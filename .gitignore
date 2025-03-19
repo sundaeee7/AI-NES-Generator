@@ -1,0 +1,7 @@
+/.idea
+/.venv
+/__pycache__
+/generated_midis
+/train
+/nesmdb
+/tfrecord
