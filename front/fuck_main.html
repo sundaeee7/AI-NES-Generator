@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chiptune Generator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <style>
+        .navbar {
+            min-height: 70px;
+        }
+        .navbar .container-fluid {
+            display: flex;
+            align-items: center;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light fixed-top">
+        <div class="container-fluid">
+            <a class="nav-link" href="/history">История генераций</a>
+            <a class="nav-link" href="/auth">Авторизация</a>
+            <button id="navbarLogoutButton" class="btn btn-danger ms-auto" style="display: none;">Выйти</button>
+        </div>
+    </nav>
+    <h1 style="margin-top: 50px">Chiptune Generator</h1>
+    <div class="button-container">
+        <button class="btn btn-primary" onclick="generateTrack()">Сгенерировать трек</button>
+        <button class="btn btn-primary" onclick="continueTrack()">Продолжить трек</button>
+        <button class="btn btn-primary" onclick="generateSingleTrack()">Сгенерировать одну дорожку</button>
+        <button class="btn btn-primary" id="loopToggle" onclick="toggleLoop()">Включить повтор</button>
+    </div>
+    <div id="player">
+        <div style="display: flex; align-items: center; justify-content: center; gap: 20px;">
+            <audio id="audio" controls></audio>
+            <div style="display: flex; flex-direction: column; align-items: center;">
+                <label for="volumeSlider">Громкость:</label>
+                <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1">
+            </div>
+        </div>
+        <canvas id="visualizer" width="600" height="200" style="margin-top: 20px;"></canvas>
+    </div>
+    <div>
+        <button id="download" class="btn btn-primary" onclick="downloadTrack()" style="display: none;">Скачать WAV</button>
+        <button id="downloadMidi" class="btn btn-primary" onclick="downloadMidi()" style="display: none;">Скачать MID</button>
+        <button id="share" class="btn btn-primary" onclick="shareLink()" style="display: none;">Скопировать ссылку</button>
+    </div>
+
+    <script src="/static/auth.js"></script>
+    <script>
+        let currentTrackId = null;
+        let audioContext, analyser, source;
+
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const trackIdFromUrl = urlParams.get('track_id');
+            if (trackIdFromUrl) {
+                loadTrack(trackIdFromUrl);
+            }
+        };
+
+        async function loadTrack(trackId) {
+            const audioUrl = `/static/wavs/${trackId}.wav`;
+            currentTrackId = trackId;
+            console.log("Loading track from URL with ID:", currentTrackId);
+            updatePlayer(audioUrl, trackId);
+        }
+
+        async function generateTrack() {
+            const response = await fetch('/generate_track');
+            const data = await response.json();
+            if (data.audio_url) {
+                currentTrackId = data.track_id;
+                console.log("Generated new track with ID:", currentTrackId);
+                updatePlayer(data.audio_url, data.track_id);
+            }
+        }
+
+        async function continueTrack() {
+            if (!currentTrackId) {
+                console.log("No current track ID, generating new track instead");
+                await generateTrack();
+                return;
+            }
+            const response = await fetch(`/continue_track?track_id=${currentTrackId}`);
+            const data = await response.json();
+            if (data.audio_url) {
+                currentTrackId = data.track_id;
+                console.log("Continued track, new ID:", currentTrackId);
+                updatePlayer(data.audio_url, data.track_id);
+            }
+        }
+
+        async function generateSingleTrack() {
+            const response = await fetch('/generate_single_track');
+            const data = await response.json();
+            if (data.audio_url) {
+                currentTrackId = data.track_id;
+                console.log("Generated single track with ID:", currentTrackId);
+                updatePlayer(data.audio_url, data.track_id);
+            }
+        }
+
+        function updatePlayer(audioUrl, trackId) {
+            const audioElement = document.getElementById('audio');
+            const player = document.getElementById('player');
+            const downloadButton = document.getElementById('download');
+            const downloadMidiButton = document.getElementById('downloadMidi');
+            const shareButton = document.getElementById('share');
+            const loopToggle = document.getElementById('loopToggle');
+            const volumeSlider = document.get40Slider');
+
+            audioElement.src = audioUrl + '?t=' + new Date().getTime();
+            audioElement.loop = loopToggle.classList.contains('active');
+            audioElement.volume = volumeSlider.value;
+            audioElement.load();
+
+            setupAudioContext(audioElement);
+
+            audioElement.onplay = () => {
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume();
+                }
+                startVisualization();
+            };
+
+            audioElement.play();
+            player.style.display = 'block';
+            downloadButton.style.display = 'inline-block';
+            downloadMidiButton.style.display = 'inline-block';
+            shareButton.style.display = 'inline-block';
+
+            volumeSlider.oninput = function() {
+                audioElement.volume = this.value;
+            };
+        }
+
+        function toggleLoop() {
+            const loopToggle = document.getElementById('loopToggle');
+            const audioElement = document.getElementById('audio');
+
+            loopToggle.classList.toggle('active');
+            if (loopToggle.classList.contains('active')) {
+                loopToggle.textContent = 'Выключить повтор';
+                audioElement.loop = true;
+            } else {
+                loopToggle.textContent = 'Включить повтор';
+                audioElement.loop = false;
+            }
+        }
+
+        function shareLink() {
+            if (!currentTrackId) {
+                console.log("No track to share");
+                return;
+            }
+            const shareUrl = `${window.location.origin}/?track_id=${currentTrackId}`;
+            navigator.clipboard.writeText(shareUrl);
+            console.log("Copied share link:", shareUrl);
+        }
+
+        function downloadTrack() {
+            if (!currentTrackId) {
+                console.log("No track to download");
+                return;
+            }
+            const volumeSlider = document.getElementById('volumeSlider');
+            const volume = volumeSlider.value;
+            window.location.href = `/download?track_id=${currentTrackId}&volume=${volume}`;
+        }
+
+        function downloadMidi() {
+            if (!currentTrackId) {
+                console.log("No MIDI track to download");
+                return;
+            }
+            window.location.href = `/download_midi?track_id=${currentTrackId}`;
+        }
+
+        function setupAudioContext(audioElement) {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+            }
+
+            if (source) {
+                source.disconnect();
+            }
+
+            source = audioContext.createMediaElementSource(audioElement);
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+        }
+
+        function startVisualization() {
+            const canvas = document.getElementById('visualizer');
+            const canvasCtx = canvas.getContext('2d');
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function draw() {
+                requestAnimationFrame(draw);
+
+                canvasCtx.fillStyle = '#000000';
+                canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+                analyser.getByteFrequencyData(dataArray);
+
+                const barWidth = (canvas.width / bufferLength) * 2.5;
+                let x = 0;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const barHeight = dataArray[i] * 1.5;
+                    canvasCtx.fillStyle = `rgb(${barHeight + 100}, 50, 150)`;
+                    canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                    x += barWidth + 1;
+                }
+            }
+
+            draw();
+        }
+    </script>
+</body>
+</html>

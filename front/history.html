@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>История генераций - Chiptune Generator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <link rel="stylesheet" href="/static/styles.css">
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <style>
+        .navbar {
+            min-height: 70px;
+        }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom:
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        .track-info {
+            flex-grow: 1;
+        }
+        .track-info p {
+            margin: 0;
+            line-height: 1.5;
+        }
+        .edit-form {
+            display: none;
+            margin-top: 10px;
+        }
+        .edit-input {
+            width: 300px;
+            margin-right: 10px;
+        }
+        .edit-button-container {
+            margin-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light bg-light fixed-top">
+        <div class="container-fluid">
+            <a class="nav-link" href="/">Главная страница</a>
+            <a class="nav-link" href="/auth">Авторизация</a>
+            <button id="navbarLogoutButton" class="btn btn-danger ms-auto" style="display: none;">Выйти</button>
+        </div>
+    </nav>
+
+    <h1 style="margin-top: 50px">История генераций</h1>
+    <div class="history-list" id="history-list">
+        <p id="no-tracks" style="display: none;">Сгенерированных треков нет.</p>
+    </div>
+
+    <script src="/static/auth.js"></script>
+    <script>
+        const historyList = document.getElementById('history-list');
+        const noTracksMessage = document.getElementById('no-tracks');
+
+        firebase.auth().onAuthStateChanged((user) => {
+            if (user) {
+                loadUserTracks(user.uid);
+            } else {
+                window.location.href = '/auth';
+            }
+        });
+
+        function loadUserTracks(userId) {
+            const tracksRef = firebase.firestore()
+                .collection('users')
+                .doc(userId)
+                .collection('tracks')
+                .orderBy('createdAt', 'desc');
+
+            tracksRef.get().then((querySnapshot) => {
+                historyList.innerHTML = '';
+                if (querySnapshot.empty) {
+                    noTracksMessage.style.display = 'block';
+                    return;
+                }
+
+                noTracksMessage.style.display = 'none';
+                querySnapshot.forEach((doc) => {
+                    const track = doc.data();
+                    const trackElement = document.createElement('div');
+                    trackElement.className = 'history-item';
+
+                    const creationDate = track.createdAt ? track.createdAt.toDate().toLocaleString('ru-RU') : 'Неизвестно';
+                    const trackInfo = document.createElement('div');
+                    trackInfo.className = 'track-info';
+                    trackInfo.innerHTML = `
+                        <p><strong>Название:</strong> <a href="/?track_id=${track.trackCode}">${track.title}</a></p>
+                        <p><strong>ID:</strong> ${track.trackCode}</p>
+                        <p><strong>Сгенерировано:</strong> ${creationDate}</p>
+                    `;
+
+                    const editButtonContainer = document.createElement('div');
+                    editButtonContainer.className = 'edit-button-container';
+                    const editButton = document.createElement('button');
+                    editButton.className = 'btn btn-secondary btn-sm';
+                    editButton.textContent = 'Изменить название';
+                    editButton.onclick = () => toggleEditForm(trackElement, track.trackCode, track.title, userId);
+                    editButtonContainer.appendChild(editButton);
+
+                    const editForm = document.createElement('div');
+                    editForm.className = 'edit-form';
+                    editForm.innerHTML = `
+                        <input type="text" class="form-control edit-input" maxlength="40" value="${track.title}" placeholder="Введите новое название">
+                        <button class="btn btn-success btn-sm" onclick="saveTitle('${track.trackCode}', '${userId}', this)">Сохранить</button>
+                        <button class="btn btn-danger btn-sm" onclick="cancelEdit(this)">Отмена</button>
+                    `;
+
+                    trackElement.appendChild(trackInfo);
+                    trackElement.appendChild(editButtonContainer);
+                    trackElement.appendChild(editForm);
+                    historyList.appendChild(trackElement);
+                });
+            }).catch((error) => {
+                console.error('Error loading tracks:', error);
+                noTracksMessage.style.display = 'block';
+            });
+        }
+
+        function toggleEditForm(trackElement, trackId, currentTitle, userId) {
+            const editForm = trackElement.querySelector('.edit-form');
+            const editButton = trackElement.querySelector('.btn-secondary');
+            editForm.style.display = editForm.style.display === 'block' ? 'none' : 'block';
+            editButton.style.display = editForm.style.display === 'block' ? 'none' : 'inline-block';
+        }
+
+        function saveTitle(trackId, userId, saveButton) {
+            const editForm = saveButton.parentElement;
+            const newTitle = editForm.querySelector('input').value.trim();
+
+            if (!newTitle) {
+                alert('Название не может быть пустым!');
+                return;
+            }
+
+            if (newTitle.length > 40) {
+                alert('Название не может превышать 40 символов!');
+                return;
+            }
+
+            firebase.firestore()
+                .collection('users')
+                .doc(userId)
+                .collection('tracks')
+                .doc(trackId)
+                .update({ title: newTitle })
+                .then(() => {
+                    const trackElement = editForm.parentElement;
+                    const trackInfo = trackElement.querySelector('.track-info');
+                    trackInfo.querySelector('a').textContent = newTitle;
+                    editForm.style.display = 'none';
+                    trackElement.querySelector('.btn-secondary').style.display = 'inline-block';
+                    alert('Название успешно обновлено!');
+                })
+                .catch((error) => {
+                    console.error('Error updating title:', error);
+                    alert('Ошибка при обновлении названия: ' + error.message);
+                });
+        }
+
+        function cancelEdit(cancelButton) {
+            const editForm = cancelButton.parentElement;
+            const trackElement = editForm.parentElement;
+            editForm.style.display = 'none';
+            trackElement.querySelector('.btn-secondary').style.display = 'inline-block';
+        }
+    </script>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'934e933ae93b8978',t:'MTc0NTQyNDA0MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
