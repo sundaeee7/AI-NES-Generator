@@ -9,6 +9,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script src="/static/auth.js"></script>
     <style>
         .navbar {
             min-height: 70px;
@@ -24,16 +25,16 @@
         </div>
     </nav>
 
-    <div class="auth-container" style="margin-top: 100px">
-        <h1>Авторизация</h1>
+    <div class="auth-container" style="margin-top: 100px;">
+        <h2>Авторизация</h2>
         <div id="auth-section">
-            <div class="mb-3">
+            <div>
                 <label for="email" class="form-label">Email:</label>
-                <input type="email" id="email" class="form-control" placeholder="Введите email">
+                <input type="email" id="email" class="form-control">
             </div>
-            <div class="mb-3">
+            <div>
                 <label for="password" class="form-label">Пароль:</label>
-                <input type="password" id="password" class="form-control" placeholder="Введите пароль">
+                <input type="password" id="password" class="form-control">
             </div>
             <div class="button-container">
                 <button id="registerButton" class="btn btn-primary">Зарегистрироваться</button>
@@ -41,11 +42,17 @@
                 <button id="logoutButton" class="btn btn-danger" style="display: none;">Выйти</button>
             </div>
         </div>
-        <div id="user-info" style="display: none; margin-top: 20px;">
+
+        <div id="user-info" style="display: none;">
             <p>Вы вошли как: <span id="user-email"></span></p>
+            <div class="button-container">
+                <button id="deleteAccountButton" class="btn btn10 btn-danger">Удалить аккаунт</button>
+            </div>
+            <div class="checkbox-container">
+                <input class="form-check-input" type="checkbox" value="" id="saveToHistoryToggle" checked>
+                <label class="form-check-label" for="saveToHistoryToggle">Сохранять треки в историю</label>
+            </div>
         </div>
     </div>
-
-    <script src="/static/auth.js"></script>
 </body>
 </html>

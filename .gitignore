@@ -1,7 +1,10 @@
 /.idea
 /.venv
-/__pycache__
 /generated_midis
-/train
 /nesmdb
 /tfrecord
+/node_modules
+/run_dir
+/soundfont
+/static/midis
+/static/wavs

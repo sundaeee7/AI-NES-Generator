@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -34,6 +34,12 @@
         <button class="btn btn-primary" onclick="continueTrack()">Продолжить трек</button>
         <button class="btn btn-primary" onclick="generateSingleTrack()">Сгенерировать одну дорожку</button>
         <button class="btn btn-primary" id="loopToggle" onclick="toggleLoop()">Включить повтор</button>
+        <div>
+            <label for="midiUpload" class="btn btn-primary" id="midiUploadLabel">
+                Конвертировать MIDI
+                <input type="file" id="midiUpload" accept=".mid,.midi" style="display: none;">
+            </label>
+        </div>
     </div>
     <div id="player">
         <div style="display: flex; align-items: center; justify-content: center; gap: 20px;">
@@ -41,6 +47,8 @@
             <div style="display: flex; flex-direction: column; align-items: center;">
                 <label for="volumeSlider">Громкость:</label>
                 <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1">
+                <label for="speedSlider" style="margin-top: 10px;">Скорость: <span id="speedValue">1.0</span>x</label>
+                <input type="range" id="speedSlider" min="0.5" max="2" step="0.1" value="1">
             </div>
         </div>
         <canvas id="visualizer" width="600" height="200" style="margin-top: 20px;"></canvas>
@@ -57,174 +65,328 @@
         let audioContext, analyser, source;
 
         window.onload = function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const trackIdFromUrl = urlParams.get('track_id');
-            if (trackIdFromUrl) {
-                loadTrack(trackIdFromUrl);
+            console.log("Page loaded, initializing...");
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const trackIdFromUrl = urlParams.get('track_id');
+                if (trackIdFromUrl) {
+                    console.log("Found track_id in URL:", trackIdFromUrl);
+                    loadTrack(trackIdFromUrl);
+                }
+
+                const midiInput = document.getElementById('midiUpload');
+                midiInput.addEventListener('change', uploadMidi);
+                console.log("MIDI upload input listener attached");
+            } catch (error) {
+                console.error("Error during page initialization:", error);
             }
         };
 
         async function loadTrack(trackId) {
-            const audioUrl = `/static/wavs/${trackId}.wav`;
-            currentTrackId = trackId;
-            console.log("Loading track from URL with ID:", currentTrackId);
-            updatePlayer(audioUrl, trackId);
+            try {
+                const audioUrl = `/static/wavs/${trackId}.wav`;
+                currentTrackId = trackId;
+                console.log("Loading track from URL with ID:", currentTrackId);
+                updatePlayer(audioUrl, trackId);
+            } catch (error) {
+                console.error("Error loading track:", error);
+            }
         }
 
         async function generateTrack() {
-            const response = await fetch('/generate_track');
-            const data = await response.json();
-            if (data.audio_url) {
-                currentTrackId = data.track_id;
-                console.log("Generated new track with ID:", currentTrackId);
-                updatePlayer(data.audio_url, data.track_id);
+            try {
+                console.log("Generating new track...");
+
+                const saveToHistory = localStorage.getItem("saveToHistory") !== "false";
+
+                const user = firebase.auth().currentUser;
+                const token = user ? await user.getIdToken() : null;
+
+                const response = await fetch(`/generate_track?saveToHistory=${saveToHistory}`, {
+                    method: "GET",
+                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                });
+
+                const data = await response.json();
+                if (data.audio_url) {
+                    currentTrackId = data.track_id;
+                    console.log("Generated new track with ID:", currentTrackId);
+                    updatePlayer(data.audio_url, data.track_id);
+                } else {
+                    console.error("No audio_url in response:", data);
+                }
+            } catch (error) {
+                console.error("Error generating track:", error);
             }
         }
 
+
         async function continueTrack() {
-            if (!currentTrackId) {
-                console.log("No current track ID, generating new track instead");
-                await generateTrack();
-                return;
-            }
-            const response = await fetch(`/continue_track?track_id=${currentTrackId}`);
-            const data = await response.json();
-            if (data.audio_url) {
-                currentTrackId = data.track_id;
-                console.log("Continued track, new ID:", currentTrackId);
-                updatePlayer(data.audio_url, data.track_id);
+            try {
+                if (!currentTrackId) {
+                    console.log("No current track ID, generating new track instead");
+                    await generateTrack();
+                    return;
+                }
+                console.log("Continuing track with ID:", currentTrackId);
+                const saveToHistory = localStorage.getItem("saveToHistory") !== "false";
+                const user = firebase.auth().currentUser;
+                const token = user ? await user.getIdToken() : null;
+
+                const response = await fetch(`/continue_track?track_id=${currentTrackId}&saveToHistory=${saveToHistory}`, {
+                    method: "GET",
+                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                });
+                const data = await response.json();
+                if (data.audio_url) {
+                    currentTrackId = data.track_id;
+                    console.log("Continued track, new ID:", currentTrackId);
+                    updatePlayer(data.audio_url, data.track_id);
+                } else {
+                    console.error("No audio_url in response:", data);
+                }
+            } catch (error) {
+                console.error("Error continuing track:", error);
             }
         }
 
         async function generateSingleTrack() {
-            const response = await fetch('/generate_single_track');
-            const data = await response.json();
-            if (data.audio_url) {
-                currentTrackId = data.track_id;
-                console.log("Generated single track with ID:", currentTrackId);
-                updatePlayer(data.audio_url, data.track_id);
+            try {
+                console.log("Generating single track...");
+                const saveToHistory = localStorage.getItem("saveToHistory") !== "false";
+                const user = firebase.auth().currentUser;
+                const token = user ? await user.getIdToken() : null;
+
+                const response = await fetch(`/generate_single_track?saveToHistory=${saveToHistory}`, {
+                    method: "GET",
+                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                });
+                const data = await response.json();
+                if (data.audio_url) {
+                    currentTrackId = data.track_id;
+                    console.log("Generated single track with ID:", currentTrackId);
+                    updatePlayer(data.audio_url, data.track_id);
+                } else {
+                    console.error("No audio_url in response:", data);
+                }
+            } catch (error) {
+                console.error("Error generating single track:", error);
+            }
+        }
+
+        async function uploadMidi() {
+            try {
+                console.log("Starting MIDI upload...");
+                const midiInput = document.getElementById('midiUpload');
+                const uploadLabel = document.getElementById('midiUploadLabel');
+                if (!midiInput.files || midiInput.files.length === 0) {
+                    console.log("No MIDI file selected");
+                    return;
+                }
+                const file = midiInput.files[0];
+                console.log("Selected MIDI file:", file.name);
+
+                uploadLabel.textContent = "Загрузка...";
+                uploadLabel.classList.add('disabled');
+                midiInput.disabled = true;
+
+                const formData = new FormData();
+                formData.append('midi', file);
+
+                const saveToHistory = localStorage.getItem("saveToHistory") !== "false";
+                const user = firebase.auth().currentUser;
+                const token = user ? await user.getIdToken() : null;
+
+                const response = await fetch(`/upload_midi?saveToHistory=${saveToHistory}`, {
+                    method: 'POST',
+                    body: formData,
+                    headers: token ? { "Authorization": `Bearer ${token}` } : {}
+                });
+                const data = await response.json();
+                if (data.audio_url) {
+                    currentTrackId = data.track_id;
+                    console.log("Uploaded and converted MIDI to chiptune, track ID:", currentTrackId);
+                    updatePlayer(data.audio_url, data.track_id);
+                    midiInput.value = '';
+                } else if (data.error) {
+                    console.error("Server returned error:", data.error);
+                    alert(data.error);
+                }
+            } catch (error) {
+                console.error("Error uploading MIDI:", error);
+                alert("Ошибка при загрузке MIDI: " + error.message);
+            } finally {
+                const uploadLabel = document.getElementById('midiUploadLabel');
+                uploadLabel.textContent = "Конвертировать MIDI";
+                uploadLabel.classList.remove('disabled');
+                midiInput.disabled = false;
             }
         }
 
         function updatePlayer(audioUrl, trackId) {
-            const audioElement = document.getElementById('audio');
-            const player = document.getElementById('player');
-            const downloadButton = document.getElementById('download');
-            const downloadMidiButton = document.getElementById('downloadMidi');
-            const shareButton = document.getElementById('share');
-            const loopToggle = document.getElementById('loopToggle');
-            const volumeSlider = document.getElementById('volumeSlider');
+            try {
+                console.log("Updating player with audio URL:", audioUrl, "and track ID:", trackId);
+                const audioElement = document.getElementById('audio');
+                const player = document.getElementById('player');
+                const downloadButton = document.getElementById('download');
+                const downloadMidiButton = document.getElementById('downloadMidi');
+                const shareButton = document.getElementById('share');
+                const loopToggle = document.getElementById('loopToggle');
+                const volumeSlider = document.getElementById('volumeSlider');
+                const speedSlider = document.getElementById('speedSlider');
+                const speedValue = document.getElementById('speedValue');
 
-            audioElement.src = audioUrl + '?t=' + new Date().getTime();
-            audioElement.loop = loopToggle.classList.contains('active');
-            audioElement. volume = volumeSlider.value;
-            audioElement.load();
+                audioElement.src = audioUrl + '?t=' + new Date().getTime();
+                audioElement.loop = loopToggle.classList.contains('active');
+                audioElement.volume = volumeSlider.value;
+                audioElement.playbackRate = speedSlider.value;
+                audioElement.load();
 
-            setupAudioContext(audioElement);
+                setupAudioContext(audioElement);
 
-            audioElement.onplay = () => {
-                if (audioContext.state === 'suspended') {
-                    audioContext.resume();
-                }
-                startVisualization();
-            };
+                audioElement.onplay = () => {
+                    if (audioContext.state === 'suspended') {
+                        audioContext.resume();
+                    }
+                    startVisualization();
+                };
 
-            audioElement.play();
-            player.style.display = 'block';
-            downloadButton.style.display = 'inline-block';
-            downloadMidiButton.style.display = 'inline-block';
-            shareButton.style.display = 'inline-block';
+                audioElement.play();
+                player.style.display = 'block';
+                downloadButton.style.display = 'inline-block';
+                downloadMidiButton.style.display = 'inline-block';
+                shareButton.style.display = 'inline-block';
 
-            volumeSlider.oninput = function() {
-                audioElement.volume = this.value;
-            };
+                volumeSlider.oninput = function() {
+                    audioElement.volume = this.value;
+                };
+
+                speedSlider.oninput = function() {
+                    audioElement.playbackRate = this.value;
+                    speedValue.textContent = parseFloat(this.value).toFixed(1);
+                };
+
+                speedValue.textContent = parseFloat(speedSlider.value).toFixed(1);
+            } catch (error) {
+                console.error("Error updating player:", error);
+            }
         }
 
         function toggleLoop() {
-            const loopToggle = document.getElementById('loopToggle');
-            const audioElement = document.getElementById('audio');
+            try {
+                console.log("Toggling loop...");
+                const loopToggle = document.getElementById('loopToggle');
+                const audioElement = document.getElementById('audio');
 
-            loopToggle.classList.toggle('active');
-            if (loopToggle.classList.contains('active')) {
-                loopToggle.textContent = 'Выключить повтор';
-                audioElement. loop = true;
-            } else {
-                loopToggle.textContent = 'Включить повтор';
-                audioElement. loop = false;
+                loopToggle.classList.toggle('active');
+                if (loopToggle.classList.contains('active')) {
+                    loopToggle.textContent = 'Выключить повтор';
+                    audioElement.loop = true;
+                } else {
+                    loopToggle.textContent = 'Включить повтор';
+                    audioElement.loop = false;
+                }
+            } catch (error) {
+                console.error("Error toggling loop:", error);
             }
         }
 
         function shareLink() {
-            if (!currentTrackId) {
-                console.log("No track to share");
-                return;
+            try {
+                if (!currentTrackId) {
+                    console.log("No track to share");
+                    return;
+                }
+                const shareUrl = `${window.location.origin}/?track_id=${currentTrackId}`;
+                navigator.clipboard.writeText(shareUrl);
+                console.log("Copied share link:", shareUrl);
+            } catch (error) {
+                console.error("Error sharing link:", error);
             }
-            const shareUrl = `${window.location.origin}/?track_id=${currentTrackId}`;
-            navigator.clipboard.writeText(shareUrl);
-            console.log("Copied share link:", shareUrl);
         }
 
         function downloadTrack() {
-            if (!currentTrackId) {
-                console.log("No track to download");
-                return;
+            try {
+                if (!currentTrackId) {
+                    console.log("No track to download");
+                    return;
+                }
+                const volumeSlider = document.getElementById('volumeSlider');
+                const volume = volumeSlider.value;
+                console.log("Downloading track with ID:", currentTrackId, "and volume:", volume);
+                window.location.href = `/download?track_id=${currentTrackId}&volume=${volume}`;
+            } catch (error) {
+                console.error("Error downloading track:", error);
             }
-            const volumeSlider = document.getElementById('volumeSlider');
-            const volume = volumeSlider.value;
-            window.location.href = `/download?track_id=${currentTrackId}&volume=${volume}`;
         }
 
         function downloadMidi() {
-            if (!currentTrackId) {
-                console.log("No MIDI track to download");
-                return;
+            try {
+                if (!currentTrackId) {
+                    console.log("No MIDI track to download");
+                    return;
+                }
+                console.log("Downloading MIDI with ID:", currentTrackId);
+                window.location.href = `/download_midi?track_id=${currentTrackId}`;
+            } catch (error) {
+                console.error("Error downloading MIDI:", error);
             }
-            window.location.href = `/download_midi?track_id=${currentTrackId}`;
         }
 
         function setupAudioContext(audioElement) {
-            if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                analyser = audioContext.createAnalyser();
-                analyser.fftSize = 2048;
-            }
+            try {
+                console.log("Setting up audio context...");
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 2048;
+                }
 
-            if (source) {
-                source.disconnect();
-            }
+                if (source) {
+                    source.disconnect();
+                }
 
-            source = audioContext.createMediaElementSource(audioElement);
-            source.connect(analyser);
-            analyser.connect(audioContext.destination);
+                source = audioContext.createMediaElementSource(audioElement);
+                source.connect(analyser);
+                analyser.connect(audioContext.destination);
+            } catch (error) {
+                console.error("Error setting up audio context:", error);
+            }
         }
 
         function startVisualization() {
-            const canvas = document.getElementById('visualizer');
-            const canvasCtx = canvas.getContext('2d');
-            const bufferLength = analyser.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
+            try {
+                console.log("Starting visualization...");
+                const canvas = document.getElementById('visualizer');
+                const canvasCtx = canvas.getContext('2d');
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
 
-            function draw() {
-                requestAnimationFrame(draw);
+                function draw() {
+                    requestAnimationFrame(draw);
 
-                canvasCtx.fillStyle = '#000000';
-                canvasCtx.fillRect(0, 0, canvas.width, canvas. height);
+                    canvasCtx.fillStyle = '#000000';
+                    canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
 
-                analyser.getByteFrequencyData(dataArray);
+                    analyser.getByteFrequencyData(dataArray);
 
-                const barWidth = (canvas.width / bufferLength) * 2.5;
-                let x = 0;
+                    const barWidth = (canvas.width / bufferLength) * 2.5;
+                    let x = 0;
 
-                for (let i = 0; i < bufferLength; i++) {
-                    const barHeight = dataArray[i] * 1.5;
-                    canvasCtx.fillStyle = `rgb(${barHeight + 100}, 50, 150)`;
-                    canvasCtx.fillRect(x, canvas. height - barHeight, barWidth, barHeight);
-                    x += barWidth + 1;
+                    for (let i = 0; i < bufferLength; i++) {
+                        const barHeight = dataArray[i] * 1.5;
+                        canvasCtx.fillStyle = `rgb(${barHeight + 100}, 50, 150)`;
+                        canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                        x += barWidth + 1;
+                    }
                 }
-            }
 
-            draw();
+                draw();
+            } catch (error) {
+                console.error("Error starting visualization:", error);
+            }
         }
     </script>
+    <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'93b98efe2da97bd6',t:'MTc0NjU0NTg0My4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script>
 </body>
 </html>

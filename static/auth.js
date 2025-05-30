@@ -122,9 +122,57 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginButton = document.getElementById('loginButton');
     const logoutButton = document.getElementById('logoutButton');
     const navbarLogoutButton = document.getElementById('navbarLogoutButton');
+    const deleteAccountButton = document.getElementById("deleteAccountButton");
+    const saveToHistoryToggle = document.getElementById("saveToHistoryToggle");
 
+    if (saveToHistoryToggle) {
+        const savedSetting = localStorage.getItem("saveToHistory");
+        saveToHistoryToggle.checked = savedSetting !== "false";
+
+        saveToHistoryToggle.addEventListener("change", () => {
+            localStorage.setItem("saveToHistory", saveToHistoryToggle.checked ? "true" : "false");
+        });
+    }
     if (registerButton) registerButton.addEventListener('click', register);
     if (loginButton) loginButton.addEventListener('click', login);
     if (logoutButton) logoutButton.addEventListener('click', logout);
     if (navbarLogoutButton) navbarLogoutButton.addEventListener('click', logout);
+});
+    if (deleteAccountButton) {
+        deleteAccountButton.addEventListener("click", async function () {
+            const user = firebase.auth().currentUser;
+
+            if (!user) {
+                alert("Пользователь не авторизован.");
+                return;
+            }
+
+            if (!confirm("Вы уверены, что хотите удалить аккаунт? Это действие необратимо.")) {
+                return;
+            }
+
+            try {
+                const token = await user.getIdToken();
+
+                const response = await fetch("/delete_user", {
+                    method: "DELETE",
+                    headers: {
+                        "Authorization": `Bearer ${token}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || "Не удалось удалить пользователя");
+                }
+
+                await firebase.auth().signOut();
+                alert("Аккаунт успешно удалён.");
+                window.location.href = "/auth";
+            } catch (error) {
+                console.error("Ошибка при удалении аккаунта:", error);
+                alert("Ошибка: " + error.message);
+            }
+        });
+    }
 });

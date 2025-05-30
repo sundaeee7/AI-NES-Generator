@@ -9,10 +9,9 @@ if not exist %OUTPUT_D    IR% mkdir %OUTPUT_DIR%
 
 python %MAGENTA_DIR%\magenta\models\music_vae\music_vae_generate.py ^
   --config=hier-chiptune_4bar ^
-  --checkpoint_file=%RUN_DIR%\train_long\train\model.ckpt-27 ^
+  --checkpoint_file=%RUN_DIR%\run_dir\train\model.ckpt-74 ^
   --mode=sample ^
   --num_outputs=1 ^
   --output_dir=%OUTPUT_DIR% ^
   --temperature=1.0
-
 pause

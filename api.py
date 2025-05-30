@@ -8,7 +8,7 @@ import fluidsynth
 from datetime import datetime
 from pydub import AudioSegment
 from scipy.io import wavfile
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -18,13 +18,13 @@ from firebase_admin import credentials, firestore, auth as firebase_auth
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 SAMPLE_RATE = 44100
-OUTPUT_DIR = r"C:\Users\andre\PycharmProjects\chiptune_generator\generated_midis"
-STATIC_DIR = r"C:\Users\andre\PycharmProjects\chiptune_generator\static"
+OUTPUT_DIR = r"C:/Users/andre/PycharmProjects/chiptune_generator/generated_midis"
+STATIC_DIR = r"C:/Users/andre/PycharmProjects/chiptune_generator/static"
 MIDIS_DIR = os.path.join(STATIC_DIR, "midis")
 WAVS_DIR = os.path.join(STATIC_DIR, "wavs")
-GEN_NESMDB_BAT_PATH = r"C:\Users\andre\PycharmProjects\chiptune_generator\gen_long.bat"
-SF2_PATH = r"C:\Users\andre\PycharmProjects\chiptune_generator\soundfont\8bitsf.sf2"
-CHECKPOINT_FILE = r"C:\Users\andre\PycharmProjects\chiptune_generator\train_long\train\model.ckpt-27"
+GEN_NESMDB_BAT_PATH = r"C:/Users/andre/PycharmProjects/chiptune_generator/gen_long.bat"
+SF2_PATH = r"C:/Users/andre/PycharmProjects/chiptune_generator/soundfont/Famicom.sf2"
+CHECKPOINT_FILE = r"C:/Users/andre/PycharmProjects/chiptune_generator/run_dir/train/model.ckpt-74"
 
 cred = credentials.Certificate("front/chipgen-9465b-firebase-adminsdk-fbsvc-83d2f2c92e.json")
 firebase_admin.initialize_app(cred)
@@ -112,7 +112,7 @@ async def save_track_to_firestore(user_id, track_id, wav_filename):
     print(f"Track {track_id} saved successfully")
 
 
-async def generate_midi_and_wav(user_id):
+async def generate_midi_and_wav(user_id, save_to_history=True):
     track_id = str(uuid.uuid4())
     midi_filename = f"{track_id}.mid"
     wav_filename = f"{track_id}.wav"
@@ -137,12 +137,13 @@ async def generate_midi_and_wav(user_id):
     trim_wav_to_segment(target_wav, segment_duration=8)
     shutil.copy(source_midi, target_midi)
 
-    await save_track_to_firestore(user_id, track_id, wav_filename)
+    if save_to_history:
+        await save_track_to_firestore(user_id, track_id, wav_filename)
 
     return track_id, target_midi, target_wav
 
 
-async def continue_midi_and_wav(current_track_id, user_id):
+async def continue_midi_and_wav(current_track_id, user_id, save_to_history):
     current_midi_path = os.path.join(MIDIS_DIR, f"{current_track_id}.mid")
     if not current_track_id or not os.path.exists(current_midi_path):
         print("No valid current track ID provided or file not found, generating new track")
@@ -158,8 +159,8 @@ async def continue_midi_and_wav(current_track_id, user_id):
 
     result = subprocess.run([
         "python",
-        r"C:\Users\andre\PycharmProjects\chiptune_generator\.venv\Lib\site-packages\magenta\models"
-        r"\music_vae\music_vae_generate.py",
+        r"C:/Users/andre/PycharmProjects/chiptune_generator/.venv/Lib/site-packages/magenta/models"
+        r"/music_vae/music_vae_generate.py",
         "--config=hier-chiptune_4bar",
         "--checkpoint_file=" + CHECKPOINT_FILE,
         "--mode=sample",
@@ -213,12 +214,13 @@ async def continue_midi_and_wav(current_track_id, user_id):
         trim_wav_to_segment(temp_wav, segment_duration=8)
         shutil.move(temp_wav, target_wav)
 
-    await save_track_to_firestore(user_id, new_track_id, new_wav_filename)
+    if save_to_history:
+        await save_track_to_firestore(user_id, new_track_id, new_wav_filename)
 
     return new_track_id, combined_midi_path, target_wav
 
 
-async def generate_single_track_wav(user_id):
+async def generate_single_track_wav(user_id, save_to_history):
     track_id = str(uuid.uuid4())
     midi_filename = f"{track_id}.mid"
     wav_filename = f"{track_id}.wav"
@@ -246,15 +248,41 @@ async def generate_single_track_wav(user_id):
     midi_to_wav(midi_file, target_wav, track_index=1)
     trim_wav_to_segment(target_wav, segment_duration=8)
 
-    await save_track_to_firestore(user_id, track_id, wav_filename)
+    if save_to_history:
+        await save_track_to_firestore(user_id, track_id, wav_filename)
+
+    return track_id, target_midi, target_wav
+
+
+async def convert_uploaded_midi_to_chiptune(midi_file: UploadFile, user_id: str, save_to_history):
+    track_id = str(uuid.uuid4())
+    midi_filename = f"{track_id}.mid"
+    wav_filename = f"{track_id}.wav"
+
+    target_midi = os.path.join(MIDIS_DIR, midi_filename)
+    target_wav = os.path.join(WAVS_DIR, wav_filename)
+
+    with open(target_midi, "wb") as f:
+        content = await midi_file.read()
+        f.write(content)
+
+    if not check_midi_content(target_midi):
+        os.remove(target_midi)
+        raise RuntimeError("Uploaded MIDI file is empty or invalid")
+
+    midi_to_wav(target_midi, target_wav)
+    trim_wav_to_segment(target_wav, segment_duration=8)
+
+    if save_to_history:
+        await save_track_to_firestore(user_id, track_id, wav_filename)
 
     return track_id, target_midi, target_wav
 
 
 @app.get("/generate_single_track")
-async def generate_single_track_endpoint(user_id: str = Depends(get_current_user)):
+async def generate_single_track_endpoint(user_id: str = Depends(get_current_user), saveToHistory: bool = Query(default=True)):
     try:
-        track_id, midi_file, wav_file = await generate_single_track_wav(user_id)
+        track_id, midi_file, wav_file = await generate_single_track_wav(user_id, save_to_history=saveToHistory)
         return {"audio_url": f"/static/wavs/{track_id}.wav", "track_id": track_id}
     except Exception as e:
         print(f"Full error: {str(e)}")
@@ -274,18 +302,18 @@ async def home(request: Request, track_id: str = None):
 
 
 @app.get("/generate_track")
-async def generate_track_endpoint(user_id: str = Depends(get_current_user)):
+async def generate_track_endpoint(user_id: str = Depends(get_current_user), saveToHistory: bool = Query(default=True)):
     try:
-        track_id, midi_file, wav_file = await generate_midi_and_wav(user_id)
+        track_id, midi_file, wav_file = await generate_midi_and_wav(user_id, save_to_history=saveToHistory)
         return {"audio_url": f"/static/wavs/{track_id}.wav", "track_id": track_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating track: {str(e)}")
 
 
 @app.get("/continue_track")
-async def continue_track_endpoint(track_id: str = None, user_id: str = Depends(get_current_user)):
+async def continue_track_endpoint(track_id: str = None, user_id: str = Depends(get_current_user), saveToHistory: bool = Query(default=True)):
     try:
-        new_track_id, midi_file, wav_file = await continue_midi_and_wav(track_id, user_id)
+        new_track_id, midi_file, wav_file = await continue_midi_and_wav(track_id, user_id, save_to_history=saveToHistory)
         return {"audio_url": f"/static/wavs/{new_track_id}.wav", "track_id": new_track_id}
     except Exception as e:
         print(f"Full error: {str(e)}")
@@ -315,6 +343,44 @@ async def download_midi_track(track_id: str):
     return response
 
 
+@app.post("/upload_midi")
+async def upload_midi_endpoint(midi: UploadFile = File(...), user_id: str = Depends(get_current_user), saveToHistory: bool = Query(default=True)):
+    try:
+        if not midi.filename.endswith(('.mid', '.midi')):
+            raise HTTPException(status_code=400, detail="File must be a MIDI file (.mid or .midi)")
+        track_id, midi_file, wav_file = await convert_uploaded_midi_to_chiptune(midi, user_id, save_to_history=saveToHistory)
+        return {"audio_url": f"/static/wavs/{track_id}.wav", "track_id": track_id}
+    except Exception as e:
+        print(f"Full error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error converting MIDI to chiptune: {str(e)}")
+
+
+@app.delete("/tracks/{track_id}")
+async def delete_track(track_id: str, user_id: str = Depends(get_current_user)):
+    try:
+        track_ref = db.collection('users').document(user_id).collection('tracks').document(track_id)
+        track_doc = track_ref.get()
+        if not track_doc.exists:
+            raise HTTPException(status_code=404, detail="Track not found")
+
+        midi_file = os.path.join(MIDIS_DIR, f"{track_id}.mid")
+        wav_file = os.path.join(WAVS_DIR, f"{track_id}.wav")
+
+        if os.path.exists(midi_file):
+            os.remove(midi_file)
+
+        if os.path.exists(wav_file):
+            os.remove(wav_file)
+
+        track_ref.delete()
+        print(f"Track {track_id} deleted from Firestore for user {user_id}")
+
+        return {"message": "Track deleted successfully"}
+    except Exception as e:
+        print(f"Error deleting track: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error deleting track: {str(e)}")
+
+
 @app.get("/history", response_class=HTMLResponse)
 async def history(request: Request):
     return templates.TemplateResponse("history.html", {"request": request})
@@ -324,6 +390,24 @@ async def history(request: Request):
 async def auth(request: Request):
     return templates.TemplateResponse("auth.html", {"request": request})
 
+
+@app.delete("/delete_user")
+async def delete_user(user_id: str = Depends(get_current_user)):
+    try:
+        tracks_ref = db.collection('users').document(user_id).collection('tracks')
+        for track in tracks_ref.stream():
+            track.reference.delete()
+
+        db.collection('users').document(user_id).delete()
+
+        firebase_auth.delete_user(user_id)
+
+        return {"message": "Пользователь успешно удалён"}
+    except Exception as e:
+        print(f"Ошибка при удалении пользователя: {e}")
+        raise HTTPException(status_code=500, detail="Ошибка при удалении аккаунта")
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000) 
